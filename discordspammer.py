@@ -30,7 +30,9 @@ if ':' not in data[0]:
 else:
     chat_id = 0
 
-bot = TeleBot(str(input('Введите токен бота Telegram: ')))
+bot_token = str(input('Введите токен бота Telegram: '))
+bot = TeleBot(bot_token)
+bot.config['api_key'] = bot_token
 
 tg_user_id = int(input('Введите ваш UserID TG: '))
 
@@ -76,13 +78,19 @@ def getproxy():
         proxies_list = open(proxyfolder, 'r', encoding='utf-8').read().splitlines()
     return(proxies_list.pop(0))
 
-def check_tags(session, chat_id, ds_user_id, bot, username):
+def check_tags(session, chat_id, ds_user_id, bot, username, token):
     last_id = None
     msg_ids = []
     all_ids = []
     while True:
         try:
             r = session.get(f'https://discord.com/api/v9/channels/{chat_id}/messages?limit=100')
+            if 'retry_after' in loads(r.text):
+                errortext = loads(r.text)['message']
+                timetosleep = loads(r.text)['retry_after']
+                logger.error(f'Error: {errortext}, sleeping {timetosleep}')
+                sleep(timetosleep)
+                r = session.get(f'https://discord.com/api/v9/channels/{chat_id}/messages?limit=100')
             for every_msg_id in loads(r.text):
                 all_ids.append(every_msg_id['id'])
             if last_id not in all_ids:
@@ -92,15 +100,15 @@ def check_tags(session, chat_id, ds_user_id, bot, username):
                 for usermessage in loads(r.text):
                     current_message = str(usermessage['content']).replace('\n', '').replace('\r', '')
                     if f'<@!{str(ds_user_id)}>' in current_message and usermessage['id'] not in msg_ids:
-                        bot.send_message(int(tg_user_id), f'Вас упомянили в ChatID: {chat_id}, текст сообщения:\n{current_message}')
+                        logger.success(f'[{username}] вас упомянули в ChatID: {chat_id}')
                         msg_ids.append(usermessage['id'])
-                        logger.success(f'[{username}] вас упомянули в ChatID: {chat_id}, сообщение в Telegram успешно отправлено')
+                        bot_msg_resp = bot.send_message(int(tg_user_id), f'Вас упомянили в ChatID: {chat_id}, username: {username}, token: {token} текст сообщения:\n{current_message}')
+                        if bot_msg_resp['ok'] == True:
+                            logger.success(f'Сообщение в Telegram успешно отправлено')
+                        else:
+                            logger.error(f'Ошибка при отправке сообщения в Telegram: {bot_msg_resp}')
+
                     last_id = usermessage['id']
-            elif 'retry_after' in loads(r.text):
-                errortext = loads(r.text)['message']
-                timetosleep = loads(r.text)['retry_after']
-                logger.error(f'Error: {errortext}, sleeping {timetosleep}')
-                sleep(timetosleep)
         except Exception as error:
             logger.error(f'[{username}] ошибка при парсе сообщений для проверки упомянаний: {str(error)}')
             continue
@@ -128,6 +136,7 @@ def mainth(token, first_start, chat_id, succinit):
                 raise Exception('invalidtoken')
             username = loads(r.text)['username']
             ds_user_id = loads(r.text)['id']
+            Thread(target=check_tags, args=(session, chat_id, ds_user_id, bot, username, token,)).start()
             logger.info(f'Первый запуск для [{username}], сплю {str(first_start_sleeping)} секунд перед первым сообщением')
             sleep(int(first_start_sleeping))
         except Exception as error:
@@ -137,7 +146,6 @@ def mainth(token, first_start, chat_id, succinit):
                 logger.error(f'Ошибка при первоначальной настройке для [{token}]: {str(error)}')
             succinit = False
         else:
-            Thread(target=check_tags, args=(session, chat_id, ds_user_id, bot, username,)).start()
             succinit = True
     while succinit == True:
         first_start = False
@@ -148,6 +156,7 @@ def mainth(token, first_start, chat_id, succinit):
                 lock.release()
                 data = {'content': str(random_message), 'tts': False}
                 r = session.post(f'https://discord.com/api/v9/channels/{chat_id}/typing', verify=False)
+
                 if '-' in sleep_when_typing:
                     time_sleep_typing = int(randint(int(range_typing_msg[0]), int(range_typing_msg[1])))
                 else:
@@ -165,6 +174,7 @@ def mainth(token, first_start, chat_id, succinit):
                     if 'retry_after' in loads(r.text):
                         timesleep = float(loads(r.text)['retry_after'])
                         logger.error(f'Ошибка: {errormsg} для [{username}], сплю {str(timesleep)} секунд')
+                        sleep(timesleep)
                     elif errormsg == 'Missing Access':
                         raise Exception('erroraccess')
                     else:

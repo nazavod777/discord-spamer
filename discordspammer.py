@@ -23,8 +23,6 @@ tokensfolder = str(input('TXT файл с токенами Discord: '))
 with open(tokensfolder, 'r', encoding='utf-8') as file:
     data = [token.strip() for token in file]
 
-msgfolder = str(input('TXT файл с сообщениями: '))
-
 if ':' not in data[0]:
     chat_id = int(input('Введите ChatID Discord: '))
 else:
@@ -32,11 +30,23 @@ else:
 
 bot_token = str(input('Введите токен бота Telegram: '))
 bot = TeleBot(bot_token)
-bot.config['api_key'] = bot_token
+#bot.config['api_key'] = bot_token
 
 tg_user_id = int(input('Введите ваш UserID TG: '))
 
 take_msgs = int(input('Как брать сообщения из TXT? 1 - по порядку, 2 - рандомно: '))
+
+msg_input_method = int(input('Как грузить TXT с сообщениями: 1. общий TXT для каждого аккаунта; 2 - к каждому токену свой TXT: '))
+
+if msg_input_method == 1:
+    current_msg_folder = str(input('TXT файл с сообщениями: '))
+else:
+    msg_folders = {}
+    for every_token in data:
+        if ':' not in data[0]:
+            msg_folders[str(every_token)] = str(input(f'Перетяните файл с сообщениями для {every_token}: '))
+        else:
+            msg_folders[str(every_token)] = str(input('Перетяните файл с сообщениями для '+every_token.split(':')[0]+': '))
 
 delete_message_after_send = str(input('Удалять сообщение после отправки? (y/N): '))
 
@@ -62,10 +72,10 @@ if '-' in sleep_when_typing:
 
 msg_set = []
 proxies_list = []
-def rand_msg():
+def rand_msg(current_msg_folder):
     global msg_set
     if 'msg_set' not in globals() or len(msg_set) < 1:
-        msg_set = open(msgfolder, 'r', encoding='utf-8').read().splitlines()
+        msg_set = open(current_msg_folder, 'r', encoding='utf-8').read().splitlines()
     if take_msgs == 1:
         taked_msg = msg_set.pop(0)
     else:
@@ -102,8 +112,8 @@ def check_tags(session, chat_id, ds_user_id, bot, username, token):
                     if f'<@!{str(ds_user_id)}>' in current_message and usermessage['id'] not in msg_ids:
                         logger.success(f'[{username}] вас упомянули в ChatID: {chat_id}')
                         msg_ids.append(usermessage['id'])
-                        bot_msg_resp = bot.send_message(int(tg_user_id), f'Вас упомянили в ChatID: {chat_id}, username: {username}, token: {token} текст сообщения:\n{current_message}')
-                        if bot_msg_resp['ok'] == True:
+                        bot_msg_resp = str(bot.send_message(int(tg_user_id), f'Вас упомянили в ChatID: {chat_id}, username: {username}, token: {token} текст сообщения:\n{current_message}'))
+                        if 'from_user' in bot_msg_resp:
                             logger.success(f'Сообщение в Telegram успешно отправлено')
                         else:
                             logger.error(f'Ошибка при отправке сообщения в Telegram: {bot_msg_resp}')
@@ -114,7 +124,7 @@ def check_tags(session, chat_id, ds_user_id, bot, username, token):
             continue
 
 
-def mainth(token, first_start, chat_id, succinit):
+def mainth(token, first_start, chat_id, succinit, current_msg_folder):
     if first_start == True:
         try:
             if '-' in fist_msg_delay_type:
@@ -152,9 +162,9 @@ def mainth(token, first_start, chat_id, succinit):
         try:
             while True:
                 lock.acquire()
-                random_message = str(rand_msg())
+                random_message = str(rand_msg(current_msg_folder))
                 lock.release()
-                data = {'content': str(random_message), 'tts': False}
+                json_data = {'content': str(random_message), 'tts': False}
                 r = session.post(f'https://discord.com/api/v9/channels/{chat_id}/typing', verify=False)
 
                 if '-' in sleep_when_typing:
@@ -164,7 +174,7 @@ def mainth(token, first_start, chat_id, succinit):
                 logger.info(f'Имитирую печатание сообщения для [{username}] в течение {time_sleep_typing} сек')
                 sleep(time_sleep_typing)
                 r = session.post(
-                    f'https://discord.com/api/v9/channels/{chat_id}/messages', json=data, verify=False)
+                    f'https://discord.com/api/v9/channels/{chat_id}/messages', json=json_data, verify=False)
                 if 'id' in loads(r.text):
                     message_id = str(loads(r.text)['id'])
                     logger.success(f'Сообщение [{random_message}] от [{username}] успешно отправлено')
@@ -215,7 +225,7 @@ def mainth(token, first_start, chat_id, succinit):
 clear()
 for _ in range(len(data)):
     while data:
-        token = data.pop(0)
-        first_start = True
-        succinit = False
-        Thread(target=mainth, args=(token, first_start, chat_id, succinit,)).start()
+        current_token = data.pop(0)
+        if msg_input_method != 1:
+            current_msg_folder = msg_folders[str(current_token)]
+        Thread(target=mainth, args=(current_token, True, chat_id, False, current_msg_folder)).start()

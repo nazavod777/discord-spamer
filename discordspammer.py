@@ -10,6 +10,7 @@ from sys import stderr
 from loguru import logger
 from urllib3 import disable_warnings
 from telebot import TeleBot
+from telebot import apihelper
 
 disable_warnings()
 logger.remove()
@@ -36,6 +37,12 @@ if use_telegram in ('y', 'Y'):
     #bot.config['api_key'] = bot_token
 
     tg_user_id = int(input('Введите ваш UserID TG: '))
+
+    useproxy_telegram = str(input('Использовать proxy для Telegram? (y/N): '))
+    if useproxy_telegram in ('y', 'Y'):
+        proxy_type_telegram = str(input('Введите тип proxy для Telegram (https/socks4/socks5): '))
+        proxy_str_telegram = str(input('Введите proxy для Telegram (ip:port or use:pass@ip:port: )'))
+        apihelper.proxy = {'https':f'{proxy_type_telegram}://{proxy_str_telegram}'}
 
 
 take_msgs = int(input('Как брать сообщения из TXT? 1 - по порядку, 2 - рандомно: '))
@@ -115,7 +122,7 @@ def check_tags(session, chat_id, ds_user_id, bot, username, token):
                     current_id = usermessage['id']
                     # <-- check replies
                     if 'referenced_message' in usermessage:
-                        if int(ds_user_id) == int(usermessage['referenced_message']['author']['id']) and current_id not in msg_ids:
+                        if str(ds_user_id) == str(usermessage['referenced_message']['author']['id']) and current_id not in msg_ids:
                             reply_content = usermessage['content']
 
                             logger.success(f'[{username}] ваше сообщение переслали в ChatID: {chat_id}')

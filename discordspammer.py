@@ -28,11 +28,15 @@ if ':' not in data[0]:
 else:
     chat_id = 0
 
-bot_token = str(input('Введите токен бота Telegram: '))
-bot = TeleBot(bot_token)
-#bot.config['api_key'] = bot_token
+use_telegram = str(input('Оповещать вас в Telegram при ответах на ваши сообщения и упоминании вас (y/N): '))
 
-tg_user_id = int(input('Введите ваш UserID TG: '))
+if use_telegram in ('y', 'Y'):
+    bot_token = str(input('Введите токен бота Telegram: '))
+    bot = TeleBot(bot_token)
+    #bot.config['api_key'] = bot_token
+
+    tg_user_id = int(input('Введите ваш UserID TG: '))
+
 
 take_msgs = int(input('Как брать сообщения из TXT? 1 - по порядку, 2 - рандомно: '))
 
@@ -108,17 +112,34 @@ def check_tags(session, chat_id, ds_user_id, bot, username, token):
                 msg_ids = []
             if r.status_code == 200 and len(loads(r.text)) > 0:
                 for usermessage in loads(r.text):
+                    current_id = usermessage['id']
+                    # <-- check replies
+                    if 'referenced_message' in usermessage:
+                        if int(ds_user_id) == int(usermessage['referenced_message']['author']['id']) and current_id not in msg_ids:
+                            reply_content = usermessage['content']
+
+                            logger.success(f'[{username}] ваше сообщение переслали в ChatID: {chat_id}')
+                            msg_ids.append(current_id)
+
+                            bot_msg_resp = str(bot.send_message(int(tg_user_id), f'Ваше сообещние переслали\nChatID: {chat_id}\nUsername: {username}\nToken: {token}\nMsg id: {current_id}\nMsg text: {reply_content}'))
+                            if 'from_user' in bot_msg_resp:
+                                logger.success(f'Сообщение в Telegram успешно отправлено')
+                            else:
+                                logger.error(f'Ошибка при отправке сообщения в Telegram: {bot_msg_resp}')
+                    # --> check replies
+
+                    # <-- check tags
                     current_message = str(usermessage['content']).replace('\n', '').replace('\r', '')
-                    if f'<@!{str(ds_user_id)}>' in current_message and usermessage['id'] not in msg_ids:
+                    if f'<@!{str(ds_user_id)}>' in current_message and current_id not in msg_ids:
                         logger.success(f'[{username}] вас упомянули в ChatID: {chat_id}')
-                        msg_ids.append(usermessage['id'])
-                        bot_msg_resp = str(bot.send_message(int(tg_user_id), f'Вас упомянили в ChatID: {chat_id}, username: {username}, token: {token} текст сообщения:\n{current_message}'))
+                        msg_ids.append(current_id)
+                        bot_msg_resp = str(bot.send_message(int(tg_user_id), f'Вас упомянули\nChatID: {chat_id}\nUsername: {username}\nToken: {token}\nMsg id: {current_id}\nMsg text: {current_message}'))
                         if 'from_user' in bot_msg_resp:
                             logger.success(f'Сообщение в Telegram успешно отправлено')
                         else:
                             logger.error(f'Ошибка при отправке сообщения в Telegram: {bot_msg_resp}')
-
-                    last_id = usermessage['id']
+                    # --> check tags
+                    last_id = current_id
         except Exception as error:
             logger.error(f'[{username}] ошибка при парсе сообщений для проверки упомянаний: {str(error)}')
             continue
@@ -146,7 +167,8 @@ def mainth(token, first_start, chat_id, succinit, current_msg_folder):
                 raise Exception('invalidtoken')
             username = loads(r.text)['username']
             ds_user_id = loads(r.text)['id']
-            Thread(target=check_tags, args=(session, chat_id, ds_user_id, bot, username, token,)).start()
+            if use_telegram in ('y', 'Y'):
+                Thread(target=check_tags, args=(session, chat_id, ds_user_id, bot, username, token,)).start()
             logger.info(f'Первый запуск для [{username}], сплю {str(first_start_sleeping)} секунд перед первым сообщением')
             sleep(int(first_start_sleeping))
         except Exception as error:
